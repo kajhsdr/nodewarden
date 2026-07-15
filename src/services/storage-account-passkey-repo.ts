@@ -7,7 +7,6 @@ let accountPasskeySchemaReady = false;
 const ACCOUNT_PASSKEY_CREDENTIAL_COLUMN_DEFS = [
   { name: 'id', sql: 'id TEXT' },
   { name: 'user_id', sql: "user_id TEXT NOT NULL DEFAULT ''" },
-  { name: 'purpose', sql: "purpose TEXT NOT NULL DEFAULT 'login'" },
   { name: 'name', sql: "name TEXT NOT NULL DEFAULT 'Account passkey'" },
   { name: 'public_key', sql: "public_key TEXT NOT NULL DEFAULT ''" },
   { name: 'credential_id', sql: "credential_id TEXT NOT NULL DEFAULT ''" },
@@ -43,7 +42,7 @@ async function ensureAccountPasskeySchema(db: D1Database): Promise<void> {
   await db
     .prepare(
       'CREATE TABLE IF NOT EXISTS webauthn_credentials (' +
-        "id TEXT PRIMARY KEY, user_id TEXT NOT NULL, purpose TEXT NOT NULL DEFAULT 'login', name TEXT NOT NULL, public_key TEXT NOT NULL, credential_id TEXT NOT NULL, counter INTEGER NOT NULL DEFAULT 0, " +
+        'id TEXT PRIMARY KEY, user_id TEXT NOT NULL, name TEXT NOT NULL, public_key TEXT NOT NULL, credential_id TEXT NOT NULL, counter INTEGER NOT NULL DEFAULT 0, ' +
         'type TEXT, aa_guid TEXT, transports TEXT, encrypted_user_key TEXT, encrypted_public_key TEXT, encrypted_private_key TEXT, supports_prf INTEGER NOT NULL DEFAULT 0, ' +
         'created_at TEXT NOT NULL, updated_at TEXT NOT NULL, ' +
         'FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE)'
@@ -101,7 +100,6 @@ function parseTransports(value: string | null): string[] | null {
 function mapCredentialRow(row: {
   id: string;
   user_id: string;
-  purpose?: string | null;
   name: string;
   public_key: string;
   credential_id: string;
@@ -119,7 +117,6 @@ function mapCredentialRow(row: {
   return {
     id: row.id,
     userId: row.user_id,
-    purpose: row.purpose === 'twoFactor' ? 'twoFactor' : 'login',
     name: row.name,
     publicKey: row.public_key,
     credentialId: row.credential_id,
@@ -163,17 +160,16 @@ export async function saveAccountPasskeyCredential(
   await safeBind(
     db.prepare(
       'INSERT INTO webauthn_credentials(' +
-        'id, user_id, purpose, name, public_key, credential_id, counter, type, aa_guid, transports, ' +
+        'id, user_id, name, public_key, credential_id, counter, type, aa_guid, transports, ' +
         'encrypted_user_key, encrypted_public_key, encrypted_private_key, supports_prf, created_at, updated_at' +
-        ') VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ' +
+        ') VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ' +
         'ON CONFLICT(id) DO UPDATE SET ' +
-        'purpose=excluded.purpose, name=excluded.name, public_key=excluded.public_key, credential_id=excluded.credential_id, counter=excluded.counter, ' +
+        'name=excluded.name, public_key=excluded.public_key, credential_id=excluded.credential_id, counter=excluded.counter, ' +
         'type=excluded.type, aa_guid=excluded.aa_guid, transports=excluded.transports, encrypted_user_key=excluded.encrypted_user_key, ' +
         'encrypted_public_key=excluded.encrypted_public_key, encrypted_private_key=excluded.encrypted_private_key, supports_prf=excluded.supports_prf, updated_at=excluded.updated_at'
     ),
     credential.id,
     credential.userId,
-    credential.purpose,
     credential.name,
     credential.publicKey,
     credential.credentialId,
@@ -192,13 +188,12 @@ export async function saveAccountPasskeyCredential(
 
 export async function listAccountPasskeyCredentialsByUserId(
   db: D1Database,
-  userId: string,
-  purpose: AccountPasskeyCredential['purpose'] = 'login'
+  userId: string
 ): Promise<AccountPasskeyCredential[]> {
   await ensureAccountPasskeySchema(db);
   const rows = await db
-    .prepare('SELECT * FROM webauthn_credentials WHERE user_id = ? AND purpose = ? ORDER BY created_at ASC')
-    .bind(userId, purpose)
+    .prepare('SELECT * FROM webauthn_credentials WHERE user_id = ? ORDER BY created_at ASC')
+    .bind(userId)
     .all<any>();
   return (rows.results || []).map(mapCredentialRow);
 }
@@ -230,13 +225,12 @@ export async function getAccountPasskeyCredentialByCredentialId(
 
 export async function countAccountPasskeyCredentialsByUserId(
   db: D1Database,
-  userId: string,
-  purpose: AccountPasskeyCredential['purpose'] = 'login'
+  userId: string
 ): Promise<number> {
   await ensureAccountPasskeySchema(db);
   const row = await db
-    .prepare('SELECT COUNT(*) AS count FROM webauthn_credentials WHERE user_id = ? AND purpose = ?')
-    .bind(userId, purpose)
+    .prepare('SELECT COUNT(*) AS count FROM webauthn_credentials WHERE user_id = ?')
+    .bind(userId)
     .first<{ count: number }>();
   return Number(row?.count || 0);
 }
@@ -268,7 +262,7 @@ export async function updateAccountPasskeyEncryption(
   const result = await db
     .prepare(
       'UPDATE webauthn_credentials SET encrypted_user_key = ?, encrypted_public_key = ?, encrypted_private_key = ?, supports_prf = 1, updated_at = ? ' +
-        "WHERE user_id = ? AND credential_id = ? AND purpose = 'login'"
+        'WHERE user_id = ? AND credential_id = ?'
     )
     .bind(encryptedUserKey, encryptedPublicKey, encryptedPrivateKey, updatedAt, userId, credentialId)
     .run();
@@ -278,13 +272,12 @@ export async function updateAccountPasskeyEncryption(
 export async function deleteAccountPasskeyCredential(
   db: D1Database,
   userId: string,
-  id: string,
-  purpose: AccountPasskeyCredential['purpose'] = 'login'
+  id: string
 ): Promise<boolean> {
   await ensureAccountPasskeySchema(db);
   const result = await db
-    .prepare('DELETE FROM webauthn_credentials WHERE user_id = ? AND id = ? AND purpose = ?')
-    .bind(userId, id, purpose)
+    .prepare('DELETE FROM webauthn_credentials WHERE user_id = ? AND id = ?')
+    .bind(userId, id)
     .run();
   return Number(result.meta.changes || 0) > 0;
 }

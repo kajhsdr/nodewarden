@@ -19,7 +19,7 @@ import {
   executeConfiguredBackup,
   importAndAuditRemoteBackupFile,
 } from '../handlers/backup';
-import { isSafeBackupAttachmentBlobName, verifyBackupArchiveFileNameChecksum } from '../services/backup-archive';
+import { verifyBackupArchiveFileNameChecksum } from '../services/backup-archive';
 import { zipSync } from 'fflate';
 
 const BACKUP_JOB_STATE_KEY = 'backup.job.state.v1';
@@ -372,7 +372,7 @@ export class BackupTransferRunner {
         return badRequest('Remote attachment download payload is invalid');
       }
       const blobName = String(body?.blobName || '').trim();
-      if (!body?.destination || !isSafeBackupAttachmentBlobName(blobName)) {
+      if (!body?.destination || !blobName) {
         return badRequest('Remote attachment download payload is invalid');
       }
       const file = await downloadRemoteBackupFile(body.destination, `attachments/${blobName}`).catch(() => null);
@@ -398,7 +398,7 @@ export class BackupTransferRunner {
       const blobNames = Array.from(new Set(
         (Array.isArray(body?.blobNames) ? body.blobNames : [])
           .map((blobName) => String(blobName || '').trim())
-          .filter(isSafeBackupAttachmentBlobName)
+          .filter(Boolean)
       ));
       if (!body?.destination || !blobNames.length || blobNames.length > 40) {
         return badRequest('Remote attachment batch download payload is invalid');
@@ -446,7 +446,7 @@ export class BackupTransferRunner {
 
     for (const attachment of body.attachments) {
       const blobName = String(attachment?.blobName || '').trim();
-      if (!isSafeBackupAttachmentBlobName(blobName)) {
+      if (!blobName) {
         return badRequest('Attachment chunk payload is invalid');
       }
 

@@ -1,6 +1,6 @@
-import { ArrowUpDown, ChevronDown, Clock3, Cloud, FileClock, Folder as FolderIcon, KeyRound, Lock, LogOut, MonitorSmartphone, Send as SendIcon, Settings as SettingsIcon, ShieldCheck, ShieldUser, Sparkles, Users } from 'lucide-preact';
+import { ArrowUpDown, Check, ChevronDown, Clock3, Cloud, FileClock, Folder as FolderIcon, Globe2, KeyRound, Lock, LogOut, MonitorSmartphone, Send as SendIcon, Settings as SettingsIcon, ShieldUser, SlidersHorizontal, Users } from 'lucide-preact';
 import type { ComponentChildren } from 'preact';
-import { useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { Link } from 'wouter';
 import AppMainRoutes from '@/components/AppMainRoutes';
 import NetworkStatusBadge from '@/components/NetworkStatusBadge';
@@ -28,32 +28,19 @@ interface AppAuthenticatedShellProps {
   mainRoutesProps: AppMainRoutesProps;
 }
 
-const NAV_GROUPS_STORAGE_KEY = 'nodewarden.navGroups';
+type NavLayoutMode = 'flat' | 'grouped-expanded' | 'grouped-smart';
 
-const DEFAULT_EXPANDED_GROUPS = {
-  tools: true,
-  settings: true,
-  management: true,
-};
+const NAV_LAYOUT_STORAGE_KEY = 'nodewarden.navLayoutMode';
 
-type NavGroup = keyof typeof DEFAULT_EXPANDED_GROUPS;
-type ExpandedGroups = Record<NavGroup, boolean>;
-
-function readExpandedGroups(): ExpandedGroups {
-  if (typeof window === 'undefined') return DEFAULT_EXPANDED_GROUPS;
+function readNavLayoutMode(): NavLayoutMode {
+  if (typeof window === 'undefined') return 'flat';
   try {
-    const saved = window.localStorage.getItem(NAV_GROUPS_STORAGE_KEY);
-    if (!saved) return DEFAULT_EXPANDED_GROUPS;
-    const parsed = JSON.parse(saved) as Partial<ExpandedGroups>;
-    return {
-      tools: typeof parsed.tools === 'boolean' ? parsed.tools : DEFAULT_EXPANDED_GROUPS.tools,
-      settings: typeof parsed.settings === 'boolean' ? parsed.settings : DEFAULT_EXPANDED_GROUPS.settings,
-      management: typeof parsed.management === 'boolean' ? parsed.management : DEFAULT_EXPANDED_GROUPS.management,
-    };
+    const saved = window.localStorage.getItem(NAV_LAYOUT_STORAGE_KEY);
+    if (saved === 'flat' || saved === 'grouped-expanded' || saved === 'grouped-smart') return saved;
   } catch {
     // Ignore local preference read failures.
   }
-  return DEFAULT_EXPANDED_GROUPS;
+  return 'flat';
 }
 
 function isAdminProfile(profile: Profile | null): boolean {
@@ -68,19 +55,57 @@ export default function AppAuthenticatedShell(props: AppAuthenticatedShellProps)
   const isDomainRulesRoute = props.location === '/settings/domain-rules';
   const isLogRoute = props.location === '/logs';
   const isAdmin = isAdminProfile(props.profile);
+  const vaultActive = props.location === '/vault' || props.location === '/vault/totp';
+  const settingsActive = props.location === props.settingsAccountRoute || props.location === '/settings/domain-rules';
+  const dataActive = props.location === '/backup' || props.isImportRoute;
   const deviceManagementActive = props.location === DEVICE_MANAGEMENT_ROUTE || props.location === LEGACY_DEVICE_MANAGEMENT_ROUTE;
-  const [expandedGroups, setExpandedGroups] = useState<ExpandedGroups>(readExpandedGroups);
+  const managementActive = props.location === '/admin' || deviceManagementActive || props.location === '/logs';
+  const [navLayoutMode, setNavLayoutMode] = useState<NavLayoutMode>(readNavLayoutMode);
+  const [navLayoutPickerOpen, setNavLayoutPickerOpen] = useState(false);
+  const navLayoutPickerRef = useRef<HTMLDivElement | null>(null);
+  const [expandedGroups, setExpandedGroups] = useState({
+    vault: true,
+    settings: false,
+    data: false,
+    management: false,
+  });
 
-  function toggleGroup(group: NavGroup): void {
-    setExpandedGroups((current) => {
-      const next = { ...current, [group]: !current[group] };
-      try {
-        window.localStorage.setItem(NAV_GROUPS_STORAGE_KEY, JSON.stringify(next));
-      } catch {
-        // Ignore local preference write failures.
+  useEffect(() => {
+    const onPointerDown = (event: Event) => {
+      if (!navLayoutPickerOpen) return;
+      const target = event.target as Node | null;
+      if (navLayoutPickerRef.current && target && !navLayoutPickerRef.current.contains(target)) {
+        setNavLayoutPickerOpen(false);
       }
-      return next;
-    });
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setNavLayoutPickerOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [navLayoutPickerOpen]);
+
+  function setNavMode(mode: NavLayoutMode): void {
+    setNavLayoutMode(mode);
+    setNavLayoutPickerOpen(false);
+    try {
+      window.localStorage.setItem(NAV_LAYOUT_STORAGE_KEY, mode);
+    } catch {
+      // Ignore local preference write failures.
+    }
+  }
+
+  function toggleGroup(group: keyof typeof expandedGroups): void {
+    setExpandedGroups((current) => ({ ...current, [group]: !current[group] }));
+  }
+
+  function groupOpen(group: keyof typeof expandedGroups, active: boolean): boolean {
+    if (navLayoutMode === 'grouped-expanded') return true;
+    return expandedGroups[group] || active;
   }
 
   function renderSideLink(href: string, active: boolean, icon: ComponentChildren, label: string) {
@@ -101,17 +126,18 @@ export default function AppAuthenticatedShell(props: AppAuthenticatedShellProps)
   }
 
   function renderNavGroup(
-    group: NavGroup,
+    group: keyof typeof expandedGroups,
     title: string,
     icon: ComponentChildren,
+    active: boolean,
     children: ComponentChildren
   ) {
-    const open = expandedGroups[group];
+    const open = groupOpen(group, active);
     return (
       <div className={`side-nav-group ${open ? 'open' : ''}`}>
         <button
           type="button"
-          className="side-group-trigger"
+          className={`side-group-trigger ${active ? 'active' : ''}`}
           aria-expanded={open}
           onClick={() => toggleGroup(group)}
         >
@@ -128,42 +154,81 @@ export default function AppAuthenticatedShell(props: AppAuthenticatedShellProps)
     );
   }
 
-  const groupedNav = (
+  const navLayoutOptions: Array<{ mode: NavLayoutMode; label: string }> = [
+    {
+      mode: 'flat',
+      label: t('txt_nav_layout_flat'),
+    },
+    {
+      mode: 'grouped-expanded',
+      label: t('txt_nav_layout_grouped_expanded'),
+    },
+    {
+      mode: 'grouped-smart',
+      label: t('txt_nav_layout_grouped_smart'),
+    },
+  ];
+
+  const navLayoutLabel = navLayoutOptions.find((option) => option.mode === navLayoutMode)?.label || t('txt_nav_layout_flat');
+  const flatNav = (
     <>
       {renderSideLink('/vault', props.location === '/vault', <KeyRound size={16} />, t('nav_vault_items'))}
+      {renderSideLink('/vault/totp', props.location === '/vault/totp', <Clock3 size={16} />, t('txt_verification_code'))}
       {renderSideLink('/sends', props.location === '/sends', <SendIcon size={16} />, t('nav_sends'))}
+      {renderSideLink(props.settingsAccountRoute, props.location === props.settingsAccountRoute, <SettingsIcon size={16} />, t('nav_account_settings'))}
+      {renderSideLink('/settings/domain-rules', props.location === '/settings/domain-rules', <Globe2 size={16} />, t('nav_domain_rules'))}
+      {isAdmin && renderSideLink('/backup', props.location === '/backup', <Cloud size={16} />, t('nav_backup_strategy'))}
+      {renderSideLink(props.importRoute, props.isImportRoute, <ArrowUpDown size={16} />, t('nav_import_export'))}
+      {isAdmin && renderSideLink('/admin', props.location === '/admin', <Users size={16} />, t('nav_admin_panel'))}
+      {isAdmin && renderSideLink('/logs', props.location === '/logs', <FileClock size={16} />, t('nav_log_center'))}
+      {renderSideLink(DEVICE_MANAGEMENT_ROUTE, deviceManagementActive, <MonitorSmartphone size={16} />, t('nav_device_management'))}
+    </>
+  );
+
+  const groupedNav = (
+    <>
       {renderNavGroup(
-        'tools',
-        t('nav_group_tools'),
-        <Sparkles size={16} />,
+        'vault',
+        t('nav_my_vault'),
+        <KeyRound size={16} />,
+        vaultActive,
         <>
+          {renderSubLink('/vault', props.location === '/vault', t('nav_vault_items'))}
           {renderSubLink('/vault/totp', props.location === '/vault/totp', t('txt_verification_code'))}
-          {renderSubLink('/generator', props.location === '/generator', t('nav_generator'))}
-          {renderSubLink('/security/password-health', props.location === '/security/password-health', t('nav_password_security'))}
-          {renderSubLink(props.importRoute, props.isImportRoute, t('nav_import_export'))}
         </>
       )}
+      {renderSideLink('/sends', props.location === '/sends', <SendIcon size={16} />, t('nav_sends'))}
       {renderNavGroup(
         'settings',
         t('txt_settings'),
         <SettingsIcon size={16} />,
+        settingsActive,
         <>
           {renderSubLink(props.settingsAccountRoute, props.location === props.settingsAccountRoute, t('nav_account_settings'))}
-          {renderSubLink(DEVICE_MANAGEMENT_ROUTE, deviceManagementActive, t('nav_device_management'))}
           {renderSubLink('/settings/domain-rules', props.location === '/settings/domain-rules', t('nav_domain_rules'))}
         </>
       )}
-      {isAdmin &&
-        renderNavGroup(
-          'management',
-          t('nav_group_system_management'),
-          <ShieldUser size={16} />,
-          <>
-            {renderSubLink('/backup', props.location === '/backup', t('nav_backup_strategy'))}
-            {renderSubLink('/admin', props.location === '/admin', t('nav_admin_panel'))}
-            {renderSubLink('/logs', props.location === '/logs', t('nav_log_center'))}
-          </>
-        )}
+      {renderNavGroup(
+        'data',
+        t('nav_group_data_backup'),
+        <Cloud size={16} />,
+        dataActive,
+        <>
+          {isAdmin && renderSubLink('/backup', props.location === '/backup', t('nav_backup_strategy'))}
+          {renderSubLink(props.importRoute, props.isImportRoute, t('nav_import_export'))}
+        </>
+      )}
+      {renderNavGroup(
+        'management',
+        t('nav_group_management'),
+        <ShieldUser size={16} />,
+        managementActive,
+        <>
+          {isAdmin && renderSubLink('/admin', props.location === '/admin', t('nav_admin_panel'))}
+          {isAdmin && renderSubLink('/logs', props.location === '/logs', t('nav_log_center'))}
+          {renderSubLink(DEVICE_MANAGEMENT_ROUTE, deviceManagementActive, t('nav_device_management'))}
+        </>
+      )}
     </>
   );
 
@@ -212,7 +277,38 @@ export default function AppAuthenticatedShell(props: AppAuthenticatedShellProps)
         <div className="app-main">
           <aside className="app-side">
             <div className="side-nav-main">
-              {groupedNav}
+              {navLayoutMode === 'flat' ? flatNav : groupedNav}
+            </div>
+            <div className="nav-layout-control" ref={navLayoutPickerRef}>
+              {navLayoutPickerOpen && (
+                <div className="nav-layout-menu" role="menu">
+                  {navLayoutOptions.map((option) => (
+                    <button
+                      key={option.mode}
+                      type="button"
+                      className={`nav-layout-option ${navLayoutMode === option.mode ? 'active' : ''}`}
+                      onClick={() => setNavMode(option.mode)}
+                      role="menuitemradio"
+                      aria-checked={navLayoutMode === option.mode}
+                    >
+                      <span className="nav-layout-option-text">
+                        <strong>{option.label}</strong>
+                      </span>
+                      {navLayoutMode === option.mode && <Check size={15} className="nav-layout-check" />}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <button
+                type="button"
+                className={`nav-layout-trigger ${navLayoutPickerOpen ? 'active' : ''}`}
+                aria-haspopup="menu"
+                aria-expanded={navLayoutPickerOpen}
+                onClick={() => setNavLayoutPickerOpen((open) => !open)}
+                title={t('txt_nav_layout')}
+              >
+                <SlidersHorizontal size={15} />
+              </button>
             </div>
           </aside>
           <main className="content">
@@ -230,10 +326,6 @@ export default function AppAuthenticatedShell(props: AppAuthenticatedShellProps)
           <Link href="/vault/totp" className={`mobile-tab ${props.mobilePrimaryRoute === '/vault/totp' ? 'active' : ''}`}>
             <Clock3 size={18} />
             <span>{t('txt_verification_code')}</span>
-          </Link>
-          <Link href="/generator" className={`mobile-tab ${props.mobilePrimaryRoute === '/generator' ? 'active' : ''}`}>
-            <Sparkles size={18} />
-            <span>{t('nav_generator')}</span>
           </Link>
           <Link href="/sends" className={`mobile-tab ${props.mobilePrimaryRoute === '/sends' ? 'active' : ''}`}>
             <SendIcon size={18} />

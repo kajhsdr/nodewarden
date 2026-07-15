@@ -53,13 +53,6 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' ? value as Record<string, unknown> : null;
 }
 
-function formatSendDate(value: string | null | undefined): string {
-  if (!value) return '';
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return '';
-  return parsed.toLocaleString();
-}
-
 function optionalString(value: unknown): string | null {
   return typeof value === 'string' ? value : null;
 }
@@ -290,7 +283,7 @@ export default function PublicSendPage(props: PublicSendPageProps) {
                 </button>
               </div>
             )}
-            {!!sendData.expirationDate && <p className="muted">{t('txt_expires_at_value', { value: formatSendDate(sendData.expirationDate) })}</p>}
+            {!!sendData.expirationDate && <p className="muted">{t('txt_expires_at_value', { value: sendData.expirationDate })}</p>}
           </>
         )}
 

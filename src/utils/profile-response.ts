@@ -1,6 +1,5 @@
 import type { Env, ProfileResponse, User } from '../types';
 import { buildAccountKeys } from './user-decryption';
-import { isYubiKeyEnabled } from './yubico-otp';
 
 export function buildProfileResponse(user: User, env?: Env): ProfileResponse {
   void env;
@@ -17,8 +16,7 @@ export function buildProfileResponse(user: User, env?: Env): ProfileResponse {
     usesKeyConnector: false,
     masterPasswordHint: user.masterPasswordHint,
     culture: 'en-US',
-    twoFactorEnabled: !!user.totpSecret || isYubiKeyEnabled(user),
-    yubikeyEnabled: isYubiKeyEnabled(user),
+    twoFactorEnabled: !!user.totpSecret,
     key: user.key,
     privateKey: user.privateKey,
     accountKeys,
@@ -30,9 +28,7 @@ export function buildProfileResponse(user: User, env?: Env): ProfileResponse {
     forcePasswordReset: false,
     avatarColor: null,
     creationDate: user.createdAt,
-    // New-device verification is not supported without an email delivery channel.
-    // Always report disabled so clients do not present a false security posture.
-    verifyDevices: false,
+    verifyDevices: user.verifyDevices !== false,
     role: user.role,
     status: user.status,
     object: 'profile',

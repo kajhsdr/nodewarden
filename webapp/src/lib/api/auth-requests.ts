@@ -52,6 +52,7 @@ export async function respondToAuthRequest(
   requestId: string,
   payload: {
     key?: string | null;
+    masterPasswordHash?: string | null;
     deviceIdentifier: string;
     requestApproved: boolean;
   }

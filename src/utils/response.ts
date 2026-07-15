@@ -1,10 +1,4 @@
 import { LIMITS } from '../config/limits';
-import type { Env } from '../types';
-import {
-  isBrowserExtensionOrigin,
-  isConfiguredWebAuthnAllowedOrigin,
-  normalizeOrigin,
-} from './origins';
 
 const CORS_METHODS = 'GET, POST, PUT, DELETE, PATCH, OPTIONS';
 const DEFAULT_CORS_HEADERS = [
@@ -24,31 +18,35 @@ const DEFAULT_CORS_HEADERS = [
   'X-NodeWarden-Web-Session',
 ];
 
+function isExtensionOrigin(origin: string): boolean {
+  return (
+    origin.startsWith('chrome-extension://')
+    || origin.startsWith('moz-extension://')
+    || origin.startsWith('safari-web-extension://')
+  );
+}
+
 function isWildcardCorsPath(path: string): boolean {
   return (
     path.startsWith('/icons/')
-    || path.startsWith('/fill-assist/')
-    || path === '/v1/assetlinks:check'
-    || path === '/api/v1/assetlinks:check'
     || path === '/config'
     || path === '/api/config'
     || path === '/api/version'
   );
 }
 
-function getCorsPolicy(request: Request, env: Env): { allowOrigin: string | null; allowCredentials: boolean } {
+function getCorsPolicy(request: Request): { allowOrigin: string | null; allowCredentials: boolean } {
   const url = new URL(request.url);
-  const originHeader = request.headers.get('Origin');
-  if (!originHeader) {
+  const origin = request.headers.get('Origin');
+  if (!origin) {
     return isWildcardCorsPath(url.pathname)
       ? { allowOrigin: '*', allowCredentials: false }
       : { allowOrigin: null, allowCredentials: false };
   }
-  const origin = normalizeOrigin(originHeader);
   if (origin === url.origin) {
     return { allowOrigin: origin, allowCredentials: true };
   }
-  if (isBrowserExtensionOrigin(origin) && isConfiguredWebAuthnAllowedOrigin(env, origin)) {
+  if (isExtensionOrigin(origin)) {
     return { allowOrigin: origin, allowCredentials: true };
   }
   if (isWildcardCorsPath(url.pathname)) {
@@ -57,7 +55,7 @@ function getCorsPolicy(request: Request, env: Env): { allowOrigin: string | null
   return { allowOrigin: null, allowCredentials: false };
 }
 
-function buildCorsHeaders(request: Request, env: Env): Record<string, string> {
+function buildCorsHeaders(request: Request): Record<string, string> {
   const requestedHeaders = String(request.headers.get('Access-Control-Request-Headers') || '')
     .split(',')
     .map((value) => value.trim())
@@ -71,7 +69,7 @@ function buildCorsHeaders(request: Request, env: Env): Record<string, string> {
     'Access-Control-Max-Age': String(LIMITS.cors.preflightMaxAgeSeconds),
   };
 
-  const corsPolicy = getCorsPolicy(request, env);
+  const corsPolicy = getCorsPolicy(request);
   if (corsPolicy.allowOrigin) {
     headers['Access-Control-Allow-Origin'] = corsPolicy.allowOrigin;
     if (corsPolicy.allowCredentials) {
@@ -85,8 +83,7 @@ function buildCorsHeaders(request: Request, env: Env): Record<string, string> {
 
 export function applyCors(
   request: Request,
-  response: Response,
-  env: Env
+  response: Response
 ): Response {
   // WebSocket upgrade responses must be returned untouched.
   const webSocket = (response as Response & { webSocket?: unknown }).webSocket;
@@ -95,7 +92,7 @@ export function applyCors(
   }
 
   const headers = new Headers(response.headers);
-  const corsHeaders = buildCorsHeaders(request, env);
+  const corsHeaders = buildCorsHeaders(request);
   for (const [k, v] of Object.entries(corsHeaders)) {
     headers.set(k, v);
   }
@@ -139,17 +136,8 @@ export function errorResponse(message: string, status: number = 400): Response {
   );
 }
 
-export function unsupportedResponse(message: string = 'This feature is not supported by this server.'): Response {
-  return errorResponse(message, 501);
-}
-
 // Identity endpoint error response (for /identity/connect/token)
-export function identityErrorResponse(
-  message: string,
-  error: string = 'invalid_grant',
-  status: number = 400,
-  headers: Record<string, string> = {}
-): Response {
+export function identityErrorResponse(message: string, error: string = 'invalid_grant', status: number = 400): Response {
   return jsonResponse(
     {
       error: error,
@@ -159,16 +147,15 @@ export function identityErrorResponse(
         Object: 'error',
       },
     },
-    status,
-    { 'Cache-Control': 'no-store', Pragma: 'no-cache', ...headers }
+    status
   );
 }
 
 // Handle CORS preflight
-export function handleCors(request: Request, env: Env): Response {
+export function handleCors(request: Request): Response {
   return new Response(null, {
     status: 204,
-    headers: buildCorsHeaders(request, env),
+    headers: buildCorsHeaders(request),
   });
 }
 

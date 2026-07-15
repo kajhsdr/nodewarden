@@ -15,62 +15,45 @@ export async function listAdminInvites(authedFetch: AuthedFetch): Promise<AdminI
   return body?.data || [];
 }
 
-export async function createInvite(authedFetch: AuthedFetch, hours: number, masterPasswordHash: string): Promise<void> {
+export async function createInvite(authedFetch: AuthedFetch, hours: number): Promise<void> {
   const resp = await authedFetch('/api/admin/invites', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ expiresInHours: hours, masterPasswordHash }),
+    body: JSON.stringify({ expiresInHours: hours }),
   });
   if (!resp.ok) throw new Error('Create invite failed');
 }
 
-export async function deleteInvite(authedFetch: AuthedFetch, code: string, masterPasswordHash: string): Promise<void> {
-  const resp = await authedFetch(`/api/admin/invites/${encodeURIComponent(code)}`, {
-    method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ masterPasswordHash }),
-  });
+export async function deleteInvite(authedFetch: AuthedFetch, code: string): Promise<void> {
+  const resp = await authedFetch(`/api/admin/invites/${encodeURIComponent(code)}`, { method: 'DELETE' });
   if (!resp.ok) throw new Error('Delete invite failed');
 }
 
-export async function deleteInvalidInvites(authedFetch: AuthedFetch, masterPasswordHash: string): Promise<void> {
-  const resp = await authedFetch('/api/admin/invites?scope=invalid', {
-    method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ masterPasswordHash }),
-  });
+export async function deleteInvalidInvites(authedFetch: AuthedFetch): Promise<void> {
+  const resp = await authedFetch('/api/admin/invites?scope=invalid', { method: 'DELETE' });
   if (!resp.ok) throw new Error('Delete invalid invites failed');
 }
 
-export async function deleteAllInvites(authedFetch: AuthedFetch, masterPasswordHash: string): Promise<void> {
-  const resp = await authedFetch('/api/admin/invites', {
-    method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ masterPasswordHash }),
-  });
+export async function deleteAllInvites(authedFetch: AuthedFetch): Promise<void> {
+  const resp = await authedFetch('/api/admin/invites', { method: 'DELETE' });
   if (!resp.ok) throw new Error('Delete all invites failed');
 }
 
 export async function setUserStatus(
   authedFetch: AuthedFetch,
   userId: string,
-  status: 'active' | 'banned',
-  masterPasswordHash: string
+  status: 'active' | 'banned'
 ): Promise<void> {
   const resp = await authedFetch(`/api/admin/users/${encodeURIComponent(userId)}/status`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status, masterPasswordHash }),
+    body: JSON.stringify({ status }),
   });
   if (!resp.ok) throw new Error('Update user status failed');
 }
 
-export async function deleteUser(authedFetch: AuthedFetch, userId: string, masterPasswordHash: string): Promise<void> {
-  const resp = await authedFetch(`/api/admin/users/${encodeURIComponent(userId)}`, {
-    method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ masterPasswordHash }),
-  });
+export async function deleteUser(authedFetch: AuthedFetch, userId: string): Promise<void> {
+  const resp = await authedFetch(`/api/admin/users/${encodeURIComponent(userId)}`, { method: 'DELETE' });
   if (!resp.ok) throw new Error('Delete user failed');
 }
 

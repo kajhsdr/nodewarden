@@ -10,14 +10,10 @@ export type Locale =
   | 'zh-CN'
   | 'zh-TW'
   | 'ru'
-  | 'es'
-  | 'fi'
-  | 'de'
-  | 'fr'
-  | 'it'
-  | 'sv';
+  | 'es';
 
 import enMessages from './i18n/locales/en';
+
 const LOCALE_STORAGE_KEY = 'nodewarden.locale';
 
 type MessageTable = Record<string, string>;
@@ -28,11 +24,6 @@ export const AVAILABLE_LOCALES: readonly { value: Locale; label: string }[] = [
   { value: 'zh-TW', label: '繁體中文' },
   { value: 'ru', label: 'Русский' },
   { value: 'es', label: 'Español' },
-  { value: 'fi', label: 'Suomi' },
-  { value: 'de', label: 'Deutsch' },
-  { value: 'fr', label: 'Français' },
-  { value: 'it', label: 'Italiano' },
-  { value: 'sv', label: 'Svenska' },
 ];
 
 let locale: Locale = resolveInitialLocale();
@@ -58,11 +49,6 @@ function resolveInitialLocale(): Locale {
       if (normalized.startsWith('zh')) return 'zh-CN';
       if (normalized.startsWith('ru')) return 'ru';
       if (normalized.startsWith('es')) return 'es';
-      if (normalized.startsWith('fi')) return 'fi';
-      if (normalized.startsWith('de')) return 'de';
-      if (normalized.startsWith('fr')) return 'fr';
-      if (normalized.startsWith('it')) return 'it';
-      if (normalized.startsWith('sv')) return 'sv';
     }
   }
   return 'en';
@@ -74,11 +60,6 @@ const localeLoaders: Record<Locale, () => Promise<{ default: MessageTable }>> = 
   'zh-TW': () => import('./i18n/locales/zh-TW'),
   ru: () => import('./i18n/locales/ru'),
   es: () => import('./i18n/locales/es'),
-  fi: () => import('./i18n/locales/fi'),
-  de: () => import('./i18n/locales/de'),
-  fr: () => import('./i18n/locales/fr'),
-  it: () => import('./i18n/locales/it'),
-  sv: () => import('./i18n/locales/sv'),
 };
 
 function localeToHtmlLang(value: Locale): string {
@@ -93,6 +74,7 @@ function syncDocumentLanguage(): void {
 async function loadLocaleMessages(next: Locale): Promise<MessageTable> {
   const cached = loadedMessages.get(next);
   if (cached) return cached;
+
   const mod = await localeLoaders[next]();
   loadedMessages.set(next, mod.default);
   return mod.default;
@@ -241,6 +223,7 @@ export function translateServerError(message: string | null | undefined, fallbac
     'masterPasswordHash is required': 'txt_server_error_master_password_hash_required',
     'masterPasswordHash or userVerificationToken is required': 'txt_server_error_master_password_or_verification_required',
   }[normalized];
+
   return key ? t(key) : normalized;
 }
 

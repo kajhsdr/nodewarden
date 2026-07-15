@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { Clipboard, Globe } from 'lucide-preact';
 import { copyTextToClipboard as copyTextWithFeedback } from '@/lib/clipboard';
-import { calcTotpNow, type TotpCodeResult } from '@/lib/crypto';
+import { calcTotpNow } from '@/lib/crypto';
 import { t } from '@/lib/i18n';
 import type { Cipher } from '@/lib/types';
 import LoadingState from '@/components/LoadingState';
@@ -14,9 +14,17 @@ interface TotpCodesPageProps {
   onNotify: (type: 'success' | 'error', text: string) => void;
 }
 
+const TOTP_PERIOD_SECONDS = 30;
 const TOTP_RING_RADIUS = 14;
 const TOTP_RING_CIRCUMFERENCE = 2 * Math.PI * TOTP_RING_RADIUS;
 const TOTP_REFRESH_BATCH_SIZE = 16;
+function getTotpTimeState(): { windowId: number; remain: number } {
+  const epoch = Math.floor(Date.now() / 1000);
+  return {
+    windowId: Math.floor(epoch / TOTP_PERIOD_SECONDS),
+    remain: TOTP_PERIOD_SECONDS - (epoch % TOTP_PERIOD_SECONDS),
+  };
+}
 
 function TotpListIcon({ cipher }: { cipher: Cipher }) {
   return <WebsiteIcon cipher={cipher} fallback={<Globe size={18} />} />;
@@ -24,15 +32,13 @@ function TotpListIcon({ cipher }: { cipher: Cipher }) {
 
 interface TotpRowProps {
   cipher: Cipher;
-  live: TotpCodeResult | null;
+  live: { code: string; remain: number } | null;
   onCopy: (value: string) => void;
 }
 
 function TotpRow(props: TotpRowProps) {
   const name = props.cipher.decName || props.cipher.name || t('txt_no_name');
   const username = props.cipher.login?.decUsername || '';
-  const period = Math.max(1, props.live?.period || 30);
-  const progress = props.live ? Math.max(0, Math.min(period, props.live.remain)) / period : 0;
 
   return (
     <div className="totp-code-row">
@@ -63,7 +69,8 @@ function TotpRow(props: TotpRowProps) {
                 strokeDasharray: `${TOTP_RING_CIRCUMFERENCE} ${TOTP_RING_CIRCUMFERENCE}`,
                 strokeDashoffset: String(
                   TOTP_RING_CIRCUMFERENCE -
-                    TOTP_RING_CIRCUMFERENCE * progress
+                    TOTP_RING_CIRCUMFERENCE *
+                      (Math.max(0, Math.min(TOTP_PERIOD_SECONDS, props.live?.remain ?? 0)) / TOTP_PERIOD_SECONDS)
                 ),
               }}
             />
@@ -79,7 +86,8 @@ function TotpRow(props: TotpRowProps) {
 }
 
 export default function TotpCodesPage(props: TotpCodesPageProps) {
-  const [totpCodes, setTotpCodes] = useState<Record<string, TotpCodeResult | null>>({});
+  const [totpCodes, setTotpCodes] = useState<Record<string, string | null>>({});
+  const [remainingSeconds, setRemainingSeconds] = useState(() => getTotpTimeState().remain);
   const [columnCount, setColumnCount] = useState(1);
   const listRef = useRef<HTMLDivElement | null>(null);
 
@@ -112,10 +120,11 @@ export default function TotpCodesPage(props: TotpCodesPageProps) {
     let stopped = false;
     let activeRun = 0;
     let timer = 0;
+    let currentWindowId = -1;
 
     const refreshCodes = async () => {
       const runId = ++activeRun;
-      const nextCodes: Record<string, TotpCodeResult | null> = {};
+      const nextCodes: Record<string, string | null> = {};
       for (let start = 0; start < totpItems.length; start += TOTP_REFRESH_BATCH_SIZE) {
         if (stopped || runId !== activeRun) return;
         const batch = totpItems.slice(start, start + TOTP_REFRESH_BATCH_SIZE);
@@ -123,7 +132,7 @@ export default function TotpCodesPage(props: TotpCodesPageProps) {
           batch.map(async (cipher) => {
             try {
               const next = await calcTotpNow(cipher.login?.decTotp || '');
-              return [cipher.id, next] as const;
+              return [cipher.id, next?.code || null] as const;
             } catch {
               return [cipher.id, null] as const;
             }
@@ -137,20 +146,15 @@ export default function TotpCodesPage(props: TotpCodesPageProps) {
       if (stopped || runId !== activeRun) return;
       setTotpCodes((prev) => {
         let changed = false;
-        const next: Record<string, TotpCodeResult | null> = { ...prev };
+        const next: Record<string, string | null> = { ...prev };
         for (const id of Object.keys(next)) {
           if (id in nextCodes) continue;
           delete next[id];
           changed = true;
         }
-        for (const [id, live] of Object.entries(nextCodes)) {
-          const prevLive = next[id];
-          if (
-            prevLive?.code === live?.code &&
-            prevLive?.remain === live?.remain &&
-            prevLive?.period === live?.period
-          ) continue;
-          next[id] = live;
+        for (const [id, code] of Object.entries(nextCodes)) {
+          if (next[id] === code) continue;
+          next[id] = code;
           changed = true;
         }
         return changed ? next : prev;
@@ -158,6 +162,10 @@ export default function TotpCodesPage(props: TotpCodesPageProps) {
     };
 
     const tick = () => {
+      const next = getTotpTimeState();
+      setRemainingSeconds((prev) => (prev === next.remain ? prev : next.remain));
+      if (next.windowId === currentWindowId) return;
+      currentWindowId = next.windowId;
       void refreshCodes();
     };
 
@@ -207,7 +215,7 @@ export default function TotpCodesPage(props: TotpCodesPageProps) {
             <TotpRow
               key={cipher.id}
               cipher={cipher}
-              live={totpCodes[cipher.id] || null}
+              live={totpCodes[cipher.id] ? { code: totpCodes[cipher.id] || '', remain: remainingSeconds } : null}
               onCopy={(value) => void copyToClipboard(value)}
             />
           ))}

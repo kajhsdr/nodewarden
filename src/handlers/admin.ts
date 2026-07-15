@@ -9,34 +9,6 @@ function isAdmin(user: User): boolean {
   return user.role === 'admin' && user.status === 'active';
 }
 
-async function requireMasterPasswordHash(
-  env: Env,
-  actorUser: User,
-  masterPasswordHash: unknown
-): Promise<Response | null> {
-  const normalized = String(masterPasswordHash || '').trim();
-  if (!normalized) {
-    return errorResponse('masterPasswordHash is required', 400);
-  }
-  const auth = new AuthService(env);
-  const valid = await auth.verifyPassword(normalized, actorUser.masterPasswordHash, actorUser.email);
-  if (!valid) {
-    return errorResponse('Invalid password', 400);
-  }
-  return null;
-}
-
-async function readJsonBody(request: Request): Promise<Record<string, unknown>> {
-  try {
-    const body = await request.json();
-    return body && typeof body === 'object' && !Array.isArray(body)
-      ? body as Record<string, unknown>
-      : {};
-  } catch {
-    return {};
-  }
-}
-
 function randomHex(bytes: number): string {
   const data = crypto.getRandomValues(new Uint8Array(bytes));
   return Array.from(data).map(v => v.toString(16).padStart(2, '0')).join('');
@@ -97,22 +69,18 @@ export async function handleAdminListUsers(
 
   const storage = new StorageService(env.DB);
   const users = await storage.getAllUsers();
-  const data = await Promise.all(users.map(async user => {
-    const hasTwoFactorPasskey = await storage.countAccountPasskeyCredentialsByUserId(user.id, 'twoFactor') > 0;
-    return {
+  return jsonResponse({
+    data: users.map(user => ({
       id: user.id,
       email: user.email,
       name: user.name,
       role: user.role,
       status: user.status,
-      twoFactorEnabled: !!user.totpSecret || Boolean(user.yubikeyKey1 || user.yubikeyKey2 || user.yubikeyKey3 || user.yubikeyKey4 || user.yubikeyKey5) || hasTwoFactorPasskey,
+      twoFactorEnabled: !!user.totpSecret,
       creationDate: user.createdAt,
       revisionDate: user.updatedAt,
       object: 'user',
-    };
-  }));
-  return jsonResponse({
-    data,
+    })),
     object: 'list',
     continuationToken: null,
   });
@@ -215,9 +183,6 @@ export async function handleAdminClearAuditLogs(
   }
   const storage = new StorageService(env.DB);
   const deleted = await storage.clearAuditLogs();
-  await writeAuditLog(storage, actorUser.id, 'admin.audit.clear', 'auditLog', null, {
-    deleted,
-  }, request);
   return jsonResponse({ object: 'auditLogClear', deleted });
 }
 
@@ -232,11 +197,14 @@ export async function handleAdminCreateInvite(
   }
 
   const storage = new StorageService(env.DB);
-  const body = await readJsonBody(request);
-  const passwordError = await requireMasterPasswordHash(env, actorUser, body.masterPasswordHash);
-  if (passwordError) return passwordError;
+  let body: { expiresInHours?: number } = {};
+  try {
+    body = await request.json();
+  } catch {
+    body = {};
+  }
 
-  const expiresInHours = Number.isFinite(Number(body.expiresInHours))
+  const expiresInHours = Number.isFinite(body.expiresInHours)
     ? Math.max(1, Math.min(24 * 30, Math.floor(Number(body.expiresInHours))))
     : 24 * 7;
   const now = new Date();
@@ -291,10 +259,6 @@ export async function handleAdminDeleteInvite(
     return errorResponse('Forbidden', 403);
   }
 
-  const body = await readJsonBody(request);
-  const passwordError = await requireMasterPasswordHash(env, actorUser, body.masterPasswordHash);
-  if (passwordError) return passwordError;
-
   const storage = new StorageService(env.DB);
   const deleted = await storage.deleteInvite(code);
   if (!deleted) {
@@ -316,10 +280,6 @@ export async function handleAdminDeleteAllInvites(
   if (!isAdmin(actorUser)) {
     return errorResponse('Forbidden', 403);
   }
-
-  const body = await readJsonBody(request);
-  const passwordError = await requireMasterPasswordHash(env, actorUser, body.masterPasswordHash);
-  if (passwordError) return passwordError;
 
   const storage = new StorageService(env.DB);
   const url = new URL(request.url);
@@ -351,9 +311,12 @@ export async function handleAdminSetUserStatus(
     return errorResponse('Forbidden', 403);
   }
 
-  const body = await readJsonBody(request);
-  const passwordError = await requireMasterPasswordHash(env, actorUser, body.masterPasswordHash);
-  if (passwordError) return passwordError;
+  let body: { status?: string };
+  try {
+    body = await request.json();
+  } catch {
+    return errorResponse('Invalid JSON', 400);
+  }
 
   const nextStatus = body.status === 'banned' ? 'banned' : body.status === 'active' ? 'active' : null;
   if (!nextStatus) {
@@ -396,16 +359,13 @@ export async function handleAdminDeleteUser(
   actorUser: User,
   targetUserId: string
 ): Promise<Response> {
+  void request;
   if (!isAdmin(actorUser)) {
     return errorResponse('Forbidden', 403);
   }
   if (targetUserId === actorUser.id) {
     return errorResponse('You cannot delete yourself', 400);
   }
-
-  const body = await readJsonBody(request);
-  const passwordError = await requireMasterPasswordHash(env, actorUser, body.masterPasswordHash);
-  if (passwordError) return passwordError;
 
   const storage = new StorageService(env.DB);
   const target = await storage.getUserById(targetUserId);

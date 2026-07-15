@@ -26,7 +26,7 @@ export async function handleAdminBackupRoute(
     return handleAdminExportBackup(request, env, actorUser);
   }
 
-  if (path === '/api/admin/backup/blob' && (method === 'GET' || method === 'POST')) {
+  if (path === '/api/admin/backup/blob' && method === 'GET') {
     return handleDownloadAdminBackupAttachment(request, env, actorUser);
   }
 
@@ -54,7 +54,7 @@ export async function handleAdminBackupRoute(
     return handleDownloadAdminRemoteBackup(request, env, actorUser);
   }
 
-  if (path === '/api/admin/backup/remote/integrity' && method === 'POST') {
+  if (path === '/api/admin/backup/remote/integrity' && method === 'GET') {
     return handleInspectAdminRemoteBackup(request, env, actorUser);
   }
 
